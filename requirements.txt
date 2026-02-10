@@ -1,0 +1,8 @@
+streamlit
+streamlit-calendar
+psycopg2-binary
+SQLAlchemy
+pandas
+plotly
+altair
+watchdog
