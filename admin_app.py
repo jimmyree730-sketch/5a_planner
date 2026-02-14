@@ -7,7 +7,15 @@ import random
 import time
 
 st.set_page_config(layout="wide", page_title="5A Admin Dashboard")
-
+hide_github_icon = """
+    <style>
+    .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5_, .viewerBadge_link__1S137, .viewerBadge_text__1JaDK { display: none; } 
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+    """
+st.markdown(hide_github_icon, unsafe_allow_html=True)
 # [시스템 무결성] 라이브러리 체크
 try:
     import plotly.graph_objects as go
@@ -559,16 +567,46 @@ def show_admin():
         st.dataframe(all_users, use_container_width=True)
         
         st.markdown("### 🗑️ 회원 삭제 (주의)")
-        del_target = st.selectbox("삭제할 회원 선택", all_users['username'].tolist())
-        if st.button("🚫 선택한 회원 영구 삭제", type="primary"):
-            if del_target == 'admin':
-                st.error("관리자 계정은 삭제할 수 없습니다.")
-            else:
-                with get_db_connection() as conn:
-                    conn.execute("DELETE FROM users WHERE username=?", (del_target,))
-                    conn.commit()
-                st.success(f"'{del_target}' 계정이 삭제되었습니다.")
-                st.rerun()
+        st.caption("삭제 시 해당 학생의 학습 기록, 메시지 등 모든 데이터가 영구적으로 지워집니다.")
+
+        # [수정] 기존 st.selectbox(단일 선택) -> st.multiselect(다중 선택)으로 변경
+        # 학생 이름 리스트 생성 (ID와 이름 매핑)
+        student_dict = {row['real_name']: row['id'] for _, row in students.iterrows()}
+        
+        # 다중 선택 위젯
+        selected_names = st.multiselect(
+            "삭제할 회원을 선택하세요 (복수 선택 가능)",
+            options=list(student_dict.keys()),
+            placeholder="이름을 검색하거나 선택하세요"
+        )
+
+        # 삭제 버튼 (선택된 사람이 있을 때만 활성화)
+        if selected_names:
+            st.error(f"선택한 {len(selected_names)}명의 회원을 정말로 삭제하시겠습니까?")
+            # 실수 방지용 체크박스
+            if st.checkbox("네, 영구 삭제에 동의합니다.", key="del_agree"):
+                if st.button("선택한 회원 일괄 삭제 실행", type="primary"):
+                    
+                    # 선택된 이름들을 ID 리스트로 변환
+                    target_ids = [student_dict[name] for name in selected_names]
+                    
+                    with get_db_connection() as conn:
+                        cur = conn.cursor()
+                        # SQL 구문 생성을 위한 플레이스홀더 (?,?,? 형태) 만들기
+                        placeholders = ','.join('?' * len(target_ids))
+                        
+                        # 1. 사용자 테이블에서 삭제
+                        cur.execute(f"DELETE FROM users WHERE id IN ({placeholders})", target_ids)
+                        # 2. 관련 학습 기록 삭제 (daily_plans)
+                        cur.execute(f"DELETE FROM daily_plans WHERE user_id IN ({placeholders})", target_ids)
+                        # 3. 관련 메시지 삭제 (messages)
+                        cur.execute(f"DELETE FROM messages WHERE from_id IN ({placeholders}) OR to_id IN ({placeholders})", target_ids * 2)
+                        
+                        conn.commit()
+                    
+                    st.success(f"✅ {len(selected_names)}명의 회원이 정상적으로 삭제되었습니다.")
+                    time.sleep(1.5)
+                    st.rerun() # 화면 새로고침하여 리스트 갱신
 
 # -----------------------------------------------------------------------------
 # 4. [핵심] 단독 실행 보장 코드
